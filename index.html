@@ -37,7 +37,6 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 selection:bg-indigo-500 selection:text-white">
 
-  <!-- Main Container -->
   <div class="w-full max-w-2xl bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden backdrop-blur">
     
     <!-- Top Header -->
@@ -67,7 +66,10 @@
 
     <!-- LOBBY VIEW -->
     <main id="lobbyView" class="p-6 md:p-8 space-y-6">
-      <!-- Player Name Input -->
+      <div id="fileProtocolWarning" class="hidden p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+        <strong>Heads up:</strong> You opened this file directly via <code>file://</code>. Some browsers block WebRTC connections unless hosted over HTTPS (like Vercel or Cloudflare Pages).
+      </div>
+
       <div>
         <label for="playerNameInput" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Your Display Name</label>
         <input id="playerNameInput" type="text" maxlength="18" placeholder="e.g. Player 1"
@@ -85,7 +87,6 @@
             <h2 class="text-lg font-semibold text-white">Create New Game</h2>
             <p class="text-sm text-slate-400">Choose your match rule, generate a room code, and share it with your opponent.</p>
 
-            <!-- Mode Selector -->
             <div class="space-y-2 pt-1">
               <span class="block text-xs font-medium text-slate-400">Game Mode</span>
               <div class="grid grid-cols-2 gap-2">
@@ -131,8 +132,9 @@
         </div>
       </div>
 
-      <!-- Lobby Status / Error Message -->
+      <!-- Lobby Status / Diagnostic Log -->
       <div id="lobbyAlert" class="hidden p-3.5 rounded-xl text-sm text-center border"></div>
+      <div id="diagnosticLog" class="hidden p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-slate-400 max-h-28 overflow-y-auto space-y-1"></div>
     </main>
 
     <!-- WAITING FOR OPPONENT VIEW (HOST) -->
@@ -142,7 +144,7 @@
           Mode: Single Roll
         </span>
         <h2 class="text-2xl font-bold text-white">Waiting for Player 2...</h2>
-        <p class="text-sm text-slate-400 max-w-md mx-auto">Share this room code with your opponent on their device or browser so they can join.</p>
+        <p class="text-sm text-slate-400 max-w-md mx-auto">Keep this screen open on your browser while Player 2 enters the code below.</p>
       </div>
 
       <div class="max-w-xs mx-auto p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
@@ -162,7 +164,7 @@
 
       <div class="flex items-center justify-center gap-2 text-xs text-slate-400">
         <span class="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-        <span>Listening for incoming peer connection...</span>
+        <span id="waitingSubStatus">Signaling server active — listening for Player 2...</span>
       </div>
 
       <div>
@@ -172,8 +174,6 @@
 
     <!-- GAME ARENA VIEW -->
     <section id="gameView" class="hidden p-6 md:p-8 space-y-6">
-      
-      <!-- Match Mode & Room Info Bar -->
       <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
         <div class="flex items-center gap-2">
           <span class="text-slate-400">Room:</span>
@@ -189,9 +189,7 @@
         </div>
       </div>
 
-      <!-- Two-Player Dice Arena -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        
         <!-- Player 1 Card -->
         <div id="p1Card" class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all">
           <div class="w-full flex items-center justify-between">
@@ -201,7 +199,6 @@
 
           <h3 id="p1NameDisplay" class="text-base font-bold text-white truncate max-w-full">Player 1</h3>
 
-          <!-- Streak Indicator (Shown in 3-in-a-row mode) -->
           <div id="p1StreakBox" class="hidden flex items-center gap-1.5">
             <span class="text-[11px] text-slate-400 mr-1">Streak:</span>
             <span id="p1Streak1" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
@@ -209,12 +206,9 @@
             <span id="p1Streak3" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
           </div>
 
-          <!-- Visual Die Container -->
           <div class="py-2">
             <div id="p1Die" class="w-28 h-28 rounded-2xl bg-slate-800 border-2 border-slate-700 shadow-inner flex items-center justify-center relative transition-all">
-              <!-- Hidden / Question Mark Face -->
               <span id="p1DieMystery" class="text-4xl font-extrabold text-slate-600 select-none">?</span>
-              <!-- 3x3 Pip Grid -->
               <div id="p1DiePips" class="hidden w-full h-full p-4 grid grid-cols-3 grid-rows-3 place-items-center">
                 <span class="pip opacity-0" data-pip="1"></span>
                 <span class="pip opacity-0" data-pip="2"></span>
@@ -243,7 +237,6 @@
 
           <h3 id="p2NameDisplay" class="text-base font-bold text-white truncate max-w-full">Player 2</h3>
 
-          <!-- Streak Indicator (Shown in 3-in-a-row mode) -->
           <div id="p2StreakBox" class="hidden flex items-center gap-1.5">
             <span class="text-[11px] text-slate-400 mr-1">Streak:</span>
             <span id="p2Streak1" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
@@ -251,12 +244,9 @@
             <span id="p2Streak3" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
           </div>
 
-          <!-- Visual Die Container -->
           <div class="py-2">
             <div id="p2Die" class="w-28 h-28 rounded-2xl bg-slate-800 border-2 border-slate-700 shadow-inner flex items-center justify-center relative transition-all">
-              <!-- Hidden / Question Mark Face -->
               <span id="p2DieMystery" class="text-4xl font-extrabold text-slate-600 select-none">?</span>
-              <!-- 3x3 Pip Grid -->
               <div id="p2DiePips" class="hidden w-full h-full p-4 grid grid-cols-3 grid-rows-3 place-items-center">
                 <span class="pip opacity-0" data-pip="1"></span>
                 <span class="pip opacity-0" data-pip="2"></span>
@@ -301,7 +291,6 @@
         </button>
       </div>
 
-      <!-- Footer Leave Link -->
       <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
         <span id="roleFooterLabel">Connected as Player 1</span>
         <button onclick="leaveRoom()" class="hover:text-rose-400 transition cursor-pointer">Leave Room</button>
@@ -311,12 +300,36 @@
   </div>
 
   <script>
-    // ==========================================
-    // 1. APPLICATION STATE
-    // ==========================================
-    const ROOM_PREFIX = 'blind-duel-dice-v1-';
+    const ROOM_PREFIX = 'bddice2026-';
 
-    // Pip maps for 3x3 die face (positions 1 through 9)
+    // Explicit STUN + TURN relay servers so mobile networks (4G/5G) & strict routers can traverse NAT
+    const PEER_CONFIG = {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun.cloudflare.com:3478' },
+          {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ],
+        iceCandidatePoolSize: 10
+      }
+    };
+
     const DIE_PIPS = {
       1: [5],
       2: [3, 7],
@@ -328,40 +341,45 @@
 
     let peer = null;
     let conn = null;
+    let handshakeRetryTimer = null;
 
     const state = {
-      role: null, // 'p1' (Host) or 'p2' (Guest)
+      role: null,
       roomCode: '',
-      mode: 'single', // 'single' or 'streak'
+      mode: 'single',
       round: 1,
-      names: {
-        p1: 'Player 1',
-        p2: 'Player 2'
-      },
-      rolls: {
-        p1: null,
-        p2: null
-      },
-      streaks: {
-        p1: 0,
-        p2: 0
-      },
+      names: { p1: 'Player 1', p2: 'Player 2' },
+      rolls: { p1: null, p2: null },
+      streaks: { p1: 0, p2: 0 },
       revealed: false,
       matchOver: false,
-      readyForNext: {
-        p1: false,
-        p2: false
-      }
+      readyForNext: { p1: false, p2: false }
     };
 
-    // ==========================================
-    // 2. LOBBY & MODE SELECTION
-    // ==========================================
+    if (window.location.protocol === 'file:') {
+      document.getElementById('fileProtocolWarning').classList.remove('hidden');
+    }
+
+    function logDiag(msg) {
+      const box = document.getElementById('diagnosticLog');
+      box.classList.remove('hidden');
+      const line = document.createElement('div');
+      const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      line.textContent = `[${time}] ${msg}`;
+      box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function clearDiag() {
+      const box = document.getElementById('diagnosticLog');
+      box.innerHTML = '';
+      box.classList.add('hidden');
+    }
+
     function selectMode(mode) {
       state.mode = mode;
       const singleBtn = document.getElementById('modeSingleBtn');
       const streakBtn = document.getElementById('modeStreakBtn');
-
       if (mode === 'single') {
         singleBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-indigo-600/20 border-indigo-500 text-indigo-300';
         streakBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700';
@@ -375,11 +393,7 @@
       const el = document.getElementById('lobbyAlert');
       el.textContent = message;
       el.classList.remove('hidden', 'bg-rose-500/10', 'border-rose-500/30', 'text-rose-300', 'bg-indigo-500/10', 'border-indigo-500/30', 'text-indigo-300');
-      if (isError) {
-        el.classList.add('bg-rose-500/10', 'border-rose-500/30', 'text-rose-300');
-      } else {
-        el.classList.add('bg-indigo-500/10', 'border-indigo-500/30', 'text-indigo-300');
-      }
+      el.classList.add(isError ? 'bg-rose-500/10' : 'bg-indigo-500/10', isError ? 'border-rose-500/30' : 'border-indigo-500/30', isError ? 'text-rose-300' : 'text-indigo-300');
     }
 
     function hideLobbyAlert() {
@@ -390,24 +404,16 @@
       const dot = document.getElementById('statusDot');
       const text = document.getElementById('statusText');
       text.textContent = label;
-
       dot.className = 'w-2 h-2 rounded-full ';
-      if (status === 'connected') {
-        dot.className += 'bg-emerald-400 shadow-[0_0_8px_#34d399]';
-      } else if (status === 'waiting') {
-        dot.className += 'bg-amber-400 animate-pulse';
-      } else {
-        dot.className += 'bg-slate-500';
-      }
+      if (status === 'connected') dot.className += 'bg-emerald-400 shadow-[0_0_8px_#34d399]';
+      else if (status === 'waiting') dot.className += 'bg-amber-400 animate-pulse';
+      else dot.className += 'bg-slate-500';
     }
 
     function generateRoomCode() {
-      // Avoid confusing characters like 0/O, 1/I
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let code = '';
-      for (let i = 0; i < 5; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
+      for (let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
       return code;
     }
 
@@ -416,11 +422,16 @@
       return raw.length > 0 ? raw : fallback;
     }
 
-    // ==========================================
-    // 3. PEERJS NETWORKING (HOST & JOIN)
-    // ==========================================
+    // Reconnect signaling socket automatically if mobile browser suspended tab
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && peer && peer.disconnected && !peer.destroyed) {
+        peer.reconnect();
+      }
+    });
+
     function hostGame() {
       hideLobbyAlert();
+      clearDiag();
       const createBtn = document.getElementById('createRoomBtn');
       createBtn.disabled = true;
       createBtn.textContent = 'Creating Room...';
@@ -430,11 +441,13 @@
       state.roomCode = generateRoomCode();
 
       cleanupPeer();
-      setConnectionStatus('waiting', 'Initializing Room...');
+      setConnectionStatus('waiting', 'Connecting to Signaling...');
+      logDiag('Registering room ' + state.roomCode + ' with signaling server...');
 
-      peer = new Peer(ROOM_PREFIX + state.roomCode);
+      peer = new Peer(ROOM_PREFIX + state.roomCode, PEER_CONFIG);
 
-      peer.on('open', () => {
+      peer.on('open', (id) => {
+        logDiag('Room registered (' + id + '). Waiting for Player 2...');
         createBtn.disabled = false;
         createBtn.textContent = 'Create Room & Get Code';
         setConnectionStatus('waiting', 'Waiting for Player 2');
@@ -446,12 +459,20 @@
           state.mode === 'single' ? 'Mode: Single Roll' : 'Mode: First to 3 Wins in a Row';
       });
 
+      peer.on('disconnected', () => {
+        if (peer && !peer.destroyed) {
+          document.getElementById('waitingSubStatus').textContent = 'Reconnecting signaling server...';
+          peer.reconnect();
+        }
+      });
+
       peer.on('connection', (incomingConn) => {
         if (conn && conn.open) {
           incomingConn.close();
           return;
         }
         conn = incomingConn;
+        document.getElementById('waitingSubStatus').textContent = 'Player 2 found! Establishing direct WebRTC link...';
         setupConnectionHandlers();
       });
 
@@ -459,17 +480,18 @@
         createBtn.disabled = false;
         createBtn.textContent = 'Create Room & Get Code';
         setConnectionStatus('offline', 'Connection Error');
+        logDiag('Host error: ' + err.type + ' - ' + err.message);
         if (err.type === 'unavailable-id') {
-          // Retry with a fresh room code automatically
           hostGame();
         } else {
-          showLobbyAlert('Network error: ' + err.message);
+          showLobbyAlert('Signaling error (' + err.type + '): ' + err.message);
         }
       });
     }
 
     function joinGame() {
       hideLobbyAlert();
+      clearDiag();
       const codeInput = document.getElementById('roomCodeInput').value.trim().toUpperCase();
       if (codeInput.length !== 5) {
         showLobbyAlert('Please enter a valid 5-character room code.');
@@ -485,40 +507,54 @@
       state.roomCode = codeInput;
 
       cleanupPeer();
-      setConnectionStatus('waiting', 'Connecting to Room...');
+      setConnectionStatus('waiting', 'Connecting to Signaling...');
+      logDiag('Connecting to PeerJS signaling server...');
 
-      peer = new Peer();
+      peer = new Peer(PEER_CONFIG);
 
       peer.on('open', () => {
-        conn = peer.connect(ROOM_PREFIX + state.roomCode, { reliable: true });
+        logDiag('Signaling ready. Dialing host room ' + state.roomCode + '...');
+        setConnectionStatus('waiting', 'Handshaking with Host...');
+
+        // Use default serialization (binary/json) which is more resilient than raw reliable mode across mobile NATs
+        conn = peer.connect(ROOM_PREFIX + state.roomCode);
 
         const timeout = setTimeout(() => {
           if (!conn || !conn.open) {
             joinBtn.disabled = false;
             joinBtn.textContent = 'Join Room';
-            setConnectionStatus('offline', 'Not Connected');
-            showLobbyAlert('Could not find room "' + state.roomCode + '". Check the code and ensure the host is waiting.');
+            setConnectionStatus('offline', 'Timed Out');
+            logDiag('Connection timed out after 15s (NAT/firewall or host closed tab).');
+            showLobbyAlert('Timed out connecting to "' + state.roomCode + '". Make sure the Host keeps their browser tab open and active.');
             cleanupPeer();
           }
-        }, 8000);
+        }, 15000);
 
         conn.on('open', () => {
           clearTimeout(timeout);
+          logDiag('WebRTC data channel open! Sending player info...');
           joinBtn.disabled = false;
           joinBtn.textContent = 'Join Room';
           setupConnectionHandlers();
-          // Send Guest handshake with Player 2 name
-          sendMessage({
-            type: 'HANDSHAKE_GUEST',
-            name: state.names.p2
-          });
+
+          // Send handshake immediately and retry every 1s until host confirms
+          const sendGuestHandshake = () => {
+            sendMessage({ type: 'HANDSHAKE_GUEST', name: state.names.p2 });
+          };
+          sendGuestHandshake();
+          handshakeRetryTimer = setInterval(sendGuestHandshake, 1000);
         });
 
-        conn.on('error', () => {
+        conn.on('iceStateChanged', (iceState) => {
+          logDiag('ICE state: ' + iceState);
+        });
+
+        conn.on('error', (err) => {
           clearTimeout(timeout);
           joinBtn.disabled = false;
           joinBtn.textContent = 'Join Room';
-          showLobbyAlert('Failed to connect to room.');
+          logDiag('DataConnection error: ' + err);
+          showLobbyAlert('Failed to establish peer data channel.');
         });
       });
 
@@ -526,22 +562,30 @@
         joinBtn.disabled = false;
         joinBtn.textContent = 'Join Room';
         setConnectionStatus('offline', 'Not Connected');
+        logDiag('Peer error: ' + err.type + ' - ' + err.message);
         if (err.type === 'peer-unavailable') {
-          showLobbyAlert('Room "' + state.roomCode + '" was not found.');
+          showLobbyAlert('Room "' + state.roomCode + '" was not found. Double-check the 5-letter code.');
         } else {
-          showLobbyAlert('Connection error: ' + err.message);
+          showLobbyAlert('Connection error (' + err.type + '): ' + err.message);
         }
       });
     }
 
     function setupConnectionHandlers() {
-      setConnectionStatus('connected', 'Connected');
+      conn.on('open', () => {
+        setConnectionStatus('connected', 'Connected');
+      });
+
+      if (conn.open) {
+        setConnectionStatus('connected', 'Connected');
+      }
 
       conn.on('data', (data) => {
         handleIncomingMessage(data);
       });
 
       conn.on('close', () => {
+        if (handshakeRetryTimer) clearInterval(handshakeRetryTimer);
         setConnectionStatus('offline', 'Opponent Disconnected');
         alert('Your opponent disconnected from the room.');
         leaveRoom();
@@ -555,9 +599,10 @@
     }
 
     function handleIncomingMessage(msg) {
+      if (!msg || !msg.type) return;
+
       switch (msg.type) {
         case 'HANDSHAKE_GUEST':
-          // Host receives Guest's name and sends back full match setup
           state.names.p2 = msg.name || 'Player 2';
           sendMessage({
             type: 'HANDSHAKE_HOST',
@@ -565,11 +610,16 @@
             p1Name: state.names.p1,
             p2Name: state.names.p2
           });
-          startArena();
+          if (document.getElementById('gameView').classList.contains('hidden')) {
+            startArena();
+          }
           break;
 
         case 'HANDSHAKE_HOST':
-          // Guest receives confirmed mode and player names
+          if (handshakeRetryTimer) {
+            clearInterval(handshakeRetryTimer);
+            handshakeRetryTimer = null;
+          }
           state.mode = msg.mode;
           state.names.p1 = msg.p1Name || 'Player 1';
           state.names.p2 = msg.p2Name || 'Player 2';
@@ -577,7 +627,6 @@
           break;
 
         case 'PLAYER_ROLLED':
-          // Opponent rolled; store value silently until both have rolled
           state.rolls[msg.player] = msg.value;
           updateArenaUI();
           checkRoundCompletion();
@@ -598,14 +647,10 @@
       }
     }
 
-    // ==========================================
-    // 4. GAMEPLAY & BLIND-REVEAL LOGIC
-    // ==========================================
     function startArena() {
       document.getElementById('lobbyView').classList.add('hidden');
       document.getElementById('waitingView').classList.add('hidden');
       document.getElementById('gameView').classList.remove('hidden');
-
       resetMatchState();
       updateArenaUI();
     }
@@ -623,7 +668,6 @@
       const me = state.role;
       if (state.rolls[me] !== null || state.matchOver) return;
 
-      // Cryptographically strong random roll 1..6 when available
       let rolledValue;
       if (window.crypto && window.crypto.getRandomValues) {
         const arr = new Uint32Array(1);
@@ -633,7 +677,6 @@
         rolledValue = Math.floor(Math.random() * 6) + 1;
       }
 
-      // Brief shake animation on player's own die before locking
       const myDieEl = document.getElementById(me + 'Die');
       const rollBtn = document.getElementById('rollBtn');
       rollBtn.disabled = true;
@@ -667,34 +710,26 @@
       const r2 = state.rolls.p2;
 
       if (r1 > r2) {
-        // Player 1 wins round
         if (state.mode === 'streak') {
           state.streaks.p1 += 1;
           state.streaks.p2 = 0;
-          if (state.streaks.p1 >= 3) {
-            state.matchOver = true;
-          }
+          if (state.streaks.p1 >= 3) state.matchOver = true;
         } else {
           state.matchOver = true;
         }
       } else if (r2 > r1) {
-        // Player 2 wins round
         if (state.mode === 'streak') {
           state.streaks.p2 += 1;
           state.streaks.p1 = 0;
-          if (state.streaks.p2 >= 3) {
-            state.matchOver = true;
-          }
+          if (state.streaks.p2 >= 3) state.matchOver = true;
         } else {
           state.matchOver = true;
         }
       } else {
-        // Draw: in 3-in-a-row mode, a draw breaks any active winning streak
         if (state.mode === 'streak') {
           state.streaks.p1 = 0;
           state.streaks.p2 = 0;
         } else {
-          // Single game draw ends the single match
           state.matchOver = true;
         }
       }
@@ -705,11 +740,7 @@
       if (state.readyForNext[me]) return;
 
       state.readyForNext[me] = true;
-      sendMessage({
-        type: 'READY_NEXT_ROUND',
-        player: me
-      });
-
+      sendMessage({ type: 'READY_NEXT_ROUND', player: me });
       updateArenaUI();
 
       if (state.readyForNext.p1 && state.readyForNext.p2) {
@@ -731,16 +762,12 @@
       updateArenaUI();
     }
 
-    // ==========================================
-    // 5. VISUAL DIE & ARENA RENDERING
-    // ==========================================
     function renderDieVisual(playerKey, value, isRevealed, isMyOwnRoll) {
       const dieBox = document.getElementById(playerKey + 'Die');
       const mysteryEl = document.getElementById(playerKey + 'DieMystery');
       const pipsContainer = document.getElementById(playerKey + 'DiePips');
       const resultText = document.getElementById(playerKey + 'ResultText');
 
-      // Show pips if round is revealed OR if it's the local player's own locked roll
       const showFace = value !== null && (isRevealed || isMyOwnRoll);
 
       if (!showFace) {
@@ -749,7 +776,6 @@
         pipsContainer.classList.add('hidden');
 
         if (value !== null) {
-          // Opponent has rolled, still hidden
           mysteryEl.textContent = '✓';
           mysteryEl.className = 'text-4xl font-extrabold text-emerald-400 select-none animate-pop';
           resultText.textContent = 'Locked (Hidden)';
@@ -763,7 +789,6 @@
         return;
       }
 
-      // Render crisp white die with black pips
       dieBox.className = 'w-28 h-28 rounded-2xl bg-white border-2 border-slate-200 shadow-xl flex items-center justify-center relative transition-all animate-pop';
       mysteryEl.classList.add('hidden');
       pipsContainer.classList.remove('hidden');
@@ -799,7 +824,6 @@
       const me = state.role;
       const opp = me === 'p1' ? 'p2' : 'p1';
 
-      // Header metadata
       document.getElementById('arenaRoomCode').textContent = state.roomCode;
       document.getElementById('arenaModeBadge').textContent =
         state.mode === 'single' ? 'Single Roll' : 'First to 3 Wins in a Row';
@@ -807,13 +831,11 @@
       document.getElementById('roleFooterLabel').textContent =
         `Connected as ${me === 'p1' ? 'Player 1 (Host)' : 'Player 2 (Guest)'}`;
 
-      // Names & "YOU" badges
       document.getElementById('p1NameDisplay').textContent = state.names.p1;
       document.getElementById('p2NameDisplay').textContent = state.names.p2;
       document.getElementById('p1YouTag').classList.toggle('hidden', me !== 'p1');
       document.getElementById('p2YouTag').classList.toggle('hidden', me !== 'p2');
 
-      // Streak UI visibility
       const isStreakMode = state.mode === 'streak';
       document.getElementById('p1StreakBox').classList.toggle('hidden', !isStreakMode);
       document.getElementById('p2StreakBox').classList.toggle('hidden', !isStreakMode);
@@ -822,7 +844,6 @@
         updateStreakDots('p2', state.streaks.p2);
       }
 
-      // Status Pills
       ['p1', 'p2'].forEach((pk) => {
         const pill = document.getElementById(pk + 'StatusPill');
         if (state.revealed) {
@@ -837,11 +858,9 @@
         }
       });
 
-      // Render Dice
       renderDieVisual('p1', state.rolls.p1, state.revealed, me === 'p1');
       renderDieVisual('p2', state.rolls.p2, state.revealed, me === 'p2');
 
-      // Card Winner Highlighting
       const p1Card = document.getElementById('p1Card');
       const p2Card = document.getElementById('p2Card');
       p1Card.className = 'p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all';
@@ -858,7 +877,6 @@
         }
       }
 
-      // Outcome Banner & Buttons
       const banner = document.getElementById('outcomeBanner');
       const title = document.getElementById('outcomeTitle');
       const subtitle = document.getElementById('outcomeSubtitle');
@@ -889,7 +907,6 @@
         return;
       }
 
-      // Both rolls are revealed!
       rollBtn.classList.add('hidden');
       const r1 = state.rolls.p1;
       const r2 = state.rolls.p2;
@@ -918,13 +935,11 @@
             ? `${state.names.p2} hit 3 wins in a row (${r2} vs ${r1}).`
             : `${state.names.p2} rolled ${r2} against ${state.names.p1}'s ${r1}.`;
         } else {
-          // Single-round tie
           banner.classList.add('border-amber-500/50');
           title.textContent = `🤝 Match Draw! Both Rolled ${r1}`;
           subtitle.textContent = 'Equal rolls! Hit Play New Match for a tie-breaker.';
         }
       } else {
-        // Streak mode continues to next round
         playAgainBtn.classList.add('hidden');
         nextRoundBtn.classList.remove('hidden');
 
@@ -954,20 +969,19 @@
       }
     }
 
-    // ==========================================
-    // 6. UTILITIES & CLEANUP
-    // ==========================================
     function copyRoomCode() {
       navigator.clipboard.writeText(state.roomCode).then(() => {
         const label = document.getElementById('copyBtnText');
         label.textContent = 'Copied!';
-        setTimeout(() => {
-          label.textContent = 'Copy Code';
-        }, 2000);
+        setTimeout(() => { label.textContent = 'Copy Code'; }, 2000);
       });
     }
 
     function cleanupPeer() {
+      if (handshakeRetryTimer) {
+        clearInterval(handshakeRetryTimer);
+        handshakeRetryTimer = null;
+      }
       if (conn) {
         try { conn.close(); } catch (e) {}
         conn = null;
@@ -987,7 +1001,6 @@
       hideLobbyAlert();
     }
 
-    // Allow pressing Enter in the room code box to join
     document.getElementById('roomCodeInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') joinGame();
     });

@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blind Duel Dice — 2-Player Multiplayer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    @keyframes shake {
+      0%, 100% { transform: rotate(0deg) scale(1); }
+      20% { transform: rotate(-14deg) scale(1.06); }
+      40% { transform: rotate(12deg) scale(1.08); }
+      60% { transform: rotate(-10deg) scale(1.05); }
+      80% { transform: rotate(8deg) scale(1.03); }
+    }
+    @keyframes popIn {
+      0% { transform: scale(0.75); opacity: 0; }
+      70% { transform: scale(1.08); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-shake {
+      animation: shake 0.45s ease-in-out infinite;
+    }
+    .animate-pop {
+      animation: popIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .pip {
+      width: 16px;
+      height: 16px;
+      border-radius: 9999px;
+      background-color: #0f172a;
+      box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.45);
+      transition: opacity 0.2s ease;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 selection:bg-indigo-500 selection:text-white">
+
+  <!-- Main Container -->
+  <div class="w-full max-w-2xl bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden backdrop-blur">
+    
+    <!-- Top Header -->
+    <header class="px-6 py-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+            <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"></circle>
+            <circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"></circle>
+            <circle cx="12" cy="12" r="1.2" fill="currentColor"></circle>
+            <circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"></circle>
+            <circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"></circle>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white">Blind Duel Dice</h1>
+          <p class="text-xs text-slate-400">Cross-Device P2P Single-Die Showdown</p>
+        </div>
+      </div>
+
+      <div id="connectionBadge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+        <span id="statusText">Not Connected</span>
+      </div>
+    </header>
+
+    <!-- LOBBY VIEW -->
+    <main id="lobbyView" class="p-6 md:p-8 space-y-6">
+      <!-- Player Name Input -->
+      <div>
+        <label for="playerNameInput" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Your Display Name</label>
+        <input id="playerNameInput" type="text" maxlength="18" placeholder="e.g. Player 1"
+          class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition" />
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Host Card -->
+        <div class="p-5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-5">
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Host a Room</span>
+              <span class="text-xs text-slate-500">Player 1</span>
+            </div>
+            <h2 class="text-lg font-semibold text-white">Create New Game</h2>
+            <p class="text-sm text-slate-400">Choose your match rule, generate a room code, and share it with your opponent.</p>
+
+            <!-- Mode Selector -->
+            <div class="space-y-2 pt-1">
+              <span class="block text-xs font-medium text-slate-400">Game Mode</span>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" id="modeSingleBtn" onclick="selectMode('single')"
+                  class="px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-indigo-600/20 border-indigo-500 text-indigo-300">
+                  Single Roll
+                </button>
+                <button type="button" id="modeStreakBtn" onclick="selectMode('streak')"
+                  class="px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700">
+                  3 Wins in a Row
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button id="createRoomBtn" onclick="hostGame()"
+            class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold text-sm shadow-lg shadow-indigo-600/25 transition cursor-pointer">
+            Create Room &amp; Get Code
+          </button>
+        </div>
+
+        <!-- Join Card -->
+        <div class="p-5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col justify-between space-y-5">
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Join a Room</span>
+              <span class="text-xs text-slate-500">Player 2</span>
+            </div>
+            <h2 class="text-lg font-semibold text-white">Enter Room Code</h2>
+            <p class="text-sm text-slate-400">Got a 5-character code from the host? Enter it below to connect directly.</p>
+
+            <div class="pt-1">
+              <label for="roomCodeInput" class="block text-xs font-medium text-slate-400 mb-2">Room Code</label>
+              <input id="roomCodeInput" type="text" maxlength="5" placeholder="ABCDE"
+                class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-center text-xl font-mono font-bold tracking-[0.35em] uppercase text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition" />
+            </div>
+          </div>
+
+          <button id="joinRoomBtn" onclick="joinGame()"
+            class="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-semibold text-sm shadow-lg shadow-emerald-600/25 transition cursor-pointer">
+            Join Room
+          </button>
+        </div>
+      </div>
+
+      <!-- Lobby Status / Error Message -->
+      <div id="lobbyAlert" class="hidden p-3.5 rounded-xl text-sm text-center border"></div>
+    </main>
+
+    <!-- WAITING FOR OPPONENT VIEW (HOST) -->
+    <section id="waitingView" class="hidden p-8 text-center space-y-6">
+      <div class="space-y-2">
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" id="waitingModeLabel">
+          Mode: Single Roll
+        </span>
+        <h2 class="text-2xl font-bold text-white">Waiting for Player 2...</h2>
+        <p class="text-sm text-slate-400 max-w-md mx-auto">Share this room code with your opponent on their device or browser so they can join.</p>
+      </div>
+
+      <div class="max-w-xs mx-auto p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+        <span class="block text-xs uppercase tracking-widest text-slate-500">Room Code</span>
+        <div id="generatedCodeDisplay" class="text-4xl font-mono font-extrabold tracking-[0.25em] text-indigo-400 select-all">
+          -----
+        </div>
+        <button onclick="copyRoomCode()" id="copyCodeBtn"
+          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition cursor-pointer">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span id="copyBtnText">Copy Code</span>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-center gap-2 text-xs text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
+        <span>Listening for incoming peer connection...</span>
+      </div>
+
+      <div>
+        <button onclick="leaveRoom()" class="text-xs text-slate-500 hover:text-slate-300 underline cursor-pointer">Cancel &amp; Return to Lobby</button>
+      </div>
+    </section>
+
+    <!-- GAME ARENA VIEW -->
+    <section id="gameView" class="hidden p-6 md:p-8 space-y-6">
+      
+      <!-- Match Mode & Room Info Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Room:</span>
+          <span id="arenaRoomCode" class="font-mono font-bold text-indigo-400 tracking-wider">-----</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Rule:</span>
+          <span id="arenaModeBadge" class="font-semibold text-amber-300">Single Roll</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Round:</span>
+          <span id="roundNumberDisplay" class="font-bold text-white">1</span>
+        </div>
+      </div>
+
+      <!-- Two-Player Dice Arena -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        
+        <!-- Player 1 Card -->
+        <div id="p1Card" class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all">
+          <div class="w-full flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Player 1 <span id="p1YouTag" class="hidden text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded ml-1">YOU</span></span>
+            <span id="p1StatusPill" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">Waiting</span>
+          </div>
+
+          <h3 id="p1NameDisplay" class="text-base font-bold text-white truncate max-w-full">Player 1</h3>
+
+          <!-- Streak Indicator (Shown in 3-in-a-row mode) -->
+          <div id="p1StreakBox" class="hidden flex items-center gap-1.5">
+            <span class="text-[11px] text-slate-400 mr-1">Streak:</span>
+            <span id="p1Streak1" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+            <span id="p1Streak2" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+            <span id="p1Streak3" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+          </div>
+
+          <!-- Visual Die Container -->
+          <div class="py-2">
+            <div id="p1Die" class="w-28 h-28 rounded-2xl bg-slate-800 border-2 border-slate-700 shadow-inner flex items-center justify-center relative transition-all">
+              <!-- Hidden / Question Mark Face -->
+              <span id="p1DieMystery" class="text-4xl font-extrabold text-slate-600 select-none">?</span>
+              <!-- 3x3 Pip Grid -->
+              <div id="p1DiePips" class="hidden w-full h-full p-4 grid grid-cols-3 grid-rows-3 place-items-center">
+                <span class="pip opacity-0" data-pip="1"></span>
+                <span class="pip opacity-0" data-pip="2"></span>
+                <span class="pip opacity-0" data-pip="3"></span>
+                <span class="pip opacity-0" data-pip="4"></span>
+                <span class="pip opacity-0" data-pip="5"></span>
+                <span class="pip opacity-0" data-pip="6"></span>
+                <span class="pip opacity-0" data-pip="7"></span>
+                <span class="pip opacity-0" data-pip="8"></span>
+                <span class="pip opacity-0" data-pip="9"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-sm font-medium text-slate-300">
+            Result: <span id="p1ResultText" class="font-bold text-white">—</span>
+          </div>
+        </div>
+
+        <!-- Player 2 Card -->
+        <div id="p2Card" class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all">
+          <div class="w-full flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Player 2 <span id="p2YouTag" class="hidden text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded ml-1">YOU</span></span>
+            <span id="p2StatusPill" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">Waiting</span>
+          </div>
+
+          <h3 id="p2NameDisplay" class="text-base font-bold text-white truncate max-w-full">Player 2</h3>
+
+          <!-- Streak Indicator (Shown in 3-in-a-row mode) -->
+          <div id="p2StreakBox" class="hidden flex items-center gap-1.5">
+            <span class="text-[11px] text-slate-400 mr-1">Streak:</span>
+            <span id="p2Streak1" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+            <span id="p2Streak2" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+            <span id="p2Streak3" class="w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors"></span>
+          </div>
+
+          <!-- Visual Die Container -->
+          <div class="py-2">
+            <div id="p2Die" class="w-28 h-28 rounded-2xl bg-slate-800 border-2 border-slate-700 shadow-inner flex items-center justify-center relative transition-all">
+              <!-- Hidden / Question Mark Face -->
+              <span id="p2DieMystery" class="text-4xl font-extrabold text-slate-600 select-none">?</span>
+              <!-- 3x3 Pip Grid -->
+              <div id="p2DiePips" class="hidden w-full h-full p-4 grid grid-cols-3 grid-rows-3 place-items-center">
+                <span class="pip opacity-0" data-pip="1"></span>
+                <span class="pip opacity-0" data-pip="2"></span>
+                <span class="pip opacity-0" data-pip="3"></span>
+                <span class="pip opacity-0" data-pip="4"></span>
+                <span class="pip opacity-0" data-pip="5"></span>
+                <span class="pip opacity-0" data-pip="6"></span>
+                <span class="pip opacity-0" data-pip="7"></span>
+                <span class="pip opacity-0" data-pip="8"></span>
+                <span class="pip opacity-0" data-pip="9"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-sm font-medium text-slate-300">
+            Result: <span id="p2ResultText" class="font-bold text-white">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Outcome Banner -->
+      <div id="outcomeBanner" class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-1 transition-all">
+        <p id="outcomeTitle" class="text-lg font-bold text-white">Your Turn to Roll</p>
+        <p id="outcomeSubtitle" class="text-xs text-slate-400">Your opponent's roll stays hidden until both players have rolled.</p>
+      </div>
+
+      <!-- Primary Action Controls -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <button id="rollBtn" onclick="rollMyDie()"
+          class="w-full sm:w-auto min-w-[200px] py-3.5 px-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-white font-bold text-base shadow-lg shadow-indigo-600/30 transition cursor-pointer">
+          Roll My Die
+        </button>
+
+        <button id="nextRoundBtn" onclick="requestNextRound()"
+          class="hidden w-full sm:w-auto min-w-[200px] py-3.5 px-8 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-white font-bold text-base shadow-lg shadow-emerald-600/30 transition cursor-pointer">
+          Next Round
+        </button>
+
+        <button id="playAgainBtn" onclick="requestMatchReset()"
+          class="hidden w-full sm:w-auto min-w-[200px] py-3.5 px-8 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-slate-950 font-bold text-base shadow-lg shadow-amber-500/30 transition cursor-pointer">
+          Play New Match
+        </button>
+      </div>
+
+      <!-- Footer Leave Link -->
+      <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
+        <span id="roleFooterLabel">Connected as Player 1</span>
+        <button onclick="leaveRoom()" class="hover:text-rose-400 transition cursor-pointer">Leave Room</button>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. APPLICATION STATE
+    // ==========================================
+    const ROOM_PREFIX = 'blind-duel-dice-v1-';
+
+    // Pip maps for 3x3 die face (positions 1 through 9)
+    const DIE_PIPS = {
+      1: [5],
+      2: [3, 7],
+      3: [3, 5, 7],
+      4: [1, 3, 7, 9],
+      5: [1, 3, 5, 7, 9],
+      6: [1, 3, 4, 6, 7, 9]
+    };
+
+    let peer = null;
+    let conn = null;
+
+    const state = {
+      role: null, // 'p1' (Host) or 'p2' (Guest)
+      roomCode: '',
+      mode: 'single', // 'single' or 'streak'
+      round: 1,
+      names: {
+        p1: 'Player 1',
+        p2: 'Player 2'
+      },
+      rolls: {
+        p1: null,
+        p2: null
+      },
+      streaks: {
+        p1: 0,
+        p2: 0
+      },
+      revealed: false,
+      matchOver: false,
+      readyForNext: {
+        p1: false,
+        p2: false
+      }
+    };
+
+    // ==========================================
+    // 2. LOBBY & MODE SELECTION
+    // ==========================================
+    function selectMode(mode) {
+      state.mode = mode;
+      const singleBtn = document.getElementById('modeSingleBtn');
+      const streakBtn = document.getElementById('modeStreakBtn');
+
+      if (mode === 'single') {
+        singleBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-indigo-600/20 border-indigo-500 text-indigo-300';
+        streakBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700';
+      } else {
+        streakBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-indigo-600/20 border-indigo-500 text-indigo-300';
+        singleBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700';
+      }
+    }
+
+    function showLobbyAlert(message, isError = true) {
+      const el = document.getElementById('lobbyAlert');
+      el.textContent = message;
+      el.classList.remove('hidden', 'bg-rose-500/10', 'border-rose-500/30', 'text-rose-300', 'bg-indigo-500/10', 'border-indigo-500/30', 'text-indigo-300');
+      if (isError) {
+        el.classList.add('bg-rose-500/10', 'border-rose-500/30', 'text-rose-300');
+      } else {
+        el.classList.add('bg-indigo-500/10', 'border-indigo-500/30', 'text-indigo-300');
+      }
+    }
+
+    function hideLobbyAlert() {
+      document.getElementById('lobbyAlert').classList.add('hidden');
+    }
+
+    function setConnectionStatus(status, label) {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      text.textContent = label;
+
+      dot.className = 'w-2 h-2 rounded-full ';
+      if (status === 'connected') {
+        dot.className += 'bg-emerald-400 shadow-[0_0_8px_#34d399]';
+      } else if (status === 'waiting') {
+        dot.className += 'bg-amber-400 animate-pulse';
+      } else {
+        dot.className += 'bg-slate-500';
+      }
+    }
+
+    function generateRoomCode() {
+      // Avoid confusing characters like 0/O, 1/I
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 5; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    function getSanitizedName(fallback) {
+      const raw = document.getElementById('playerNameInput').value.trim();
+      return raw.length > 0 ? raw : fallback;
+    }
+
+    // ==========================================
+    // 3. PEERJS NETWORKING (HOST & JOIN)
+    // ==========================================
+    function hostGame() {
+      hideLobbyAlert();
+      const createBtn = document.getElementById('createRoomBtn');
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating Room...';
+
+      state.role = 'p1';
+      state.names.p1 = getSanitizedName('Player 1');
+      state.roomCode = generateRoomCode();
+
+      cleanupPeer();
+      setConnectionStatus('waiting', 'Initializing Room...');
+
+      peer = new Peer(ROOM_PREFIX + state.roomCode);
+
+      peer.on('open', () => {
+        createBtn.disabled = false;
+        createBtn.textContent = 'Create Room & Get Code';
+        setConnectionStatus('waiting', 'Waiting for Player 2');
+
+        document.getElementById('lobbyView').classList.add('hidden');
+        document.getElementById('waitingView').classList.remove('hidden');
+        document.getElementById('generatedCodeDisplay').textContent = state.roomCode;
+        document.getElementById('waitingModeLabel').textContent =
+          state.mode === 'single' ? 'Mode: Single Roll' : 'Mode: First to 3 Wins in a Row';
+      });
+
+      peer.on('connection', (incomingConn) => {
+        if (conn && conn.open) {
+          incomingConn.close();
+          return;
+        }
+        conn = incomingConn;
+        setupConnectionHandlers();
+      });
+
+      peer.on('error', (err) => {
+        createBtn.disabled = false;
+        createBtn.textContent = 'Create Room & Get Code';
+        setConnectionStatus('offline', 'Connection Error');
+        if (err.type === 'unavailable-id') {
+          // Retry with a fresh room code automatically
+          hostGame();
+        } else {
+          showLobbyAlert('Network error: ' + err.message);
+        }
+      });
+    }
+
+    function joinGame() {
+      hideLobbyAlert();
+      const codeInput = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+      if (codeInput.length !== 5) {
+        showLobbyAlert('Please enter a valid 5-character room code.');
+        return;
+      }
+
+      const joinBtn = document.getElementById('joinRoomBtn');
+      joinBtn.disabled = true;
+      joinBtn.textContent = 'Connecting...';
+
+      state.role = 'p2';
+      state.names.p2 = getSanitizedName('Player 2');
+      state.roomCode = codeInput;
+
+      cleanupPeer();
+      setConnectionStatus('waiting', 'Connecting to Room...');
+
+      peer = new Peer();
+
+      peer.on('open', () => {
+        conn = peer.connect(ROOM_PREFIX + state.roomCode, { reliable: true });
+
+        const timeout = setTimeout(() => {
+          if (!conn || !conn.open) {
+            joinBtn.disabled = false;
+            joinBtn.textContent = 'Join Room';
+            setConnectionStatus('offline', 'Not Connected');
+            showLobbyAlert('Could not find room "' + state.roomCode + '". Check the code and ensure the host is waiting.');
+            cleanupPeer();
+          }
+        }, 8000);
+
+        conn.on('open', () => {
+          clearTimeout(timeout);
+          joinBtn.disabled = false;
+          joinBtn.textContent = 'Join Room';
+          setupConnectionHandlers();
+          // Send Guest handshake with Player 2 name
+          sendMessage({
+            type: 'HANDSHAKE_GUEST',
+            name: state.names.p2
+          });
+        });
+
+        conn.on('error', () => {
+          clearTimeout(timeout);
+          joinBtn.disabled = false;
+          joinBtn.textContent = 'Join Room';
+          showLobbyAlert('Failed to connect to room.');
+        });
+      });
+
+      peer.on('error', (err) => {
+        joinBtn.disabled = false;
+        joinBtn.textContent = 'Join Room';
+        setConnectionStatus('offline', 'Not Connected');
+        if (err.type === 'peer-unavailable') {
+          showLobbyAlert('Room "' + state.roomCode + '" was not found.');
+        } else {
+          showLobbyAlert('Connection error: ' + err.message);
+        }
+      });
+    }
+
+    function setupConnectionHandlers() {
+      setConnectionStatus('connected', 'Connected');
+
+      conn.on('data', (data) => {
+        handleIncomingMessage(data);
+      });
+
+      conn.on('close', () => {
+        setConnectionStatus('offline', 'Opponent Disconnected');
+        alert('Your opponent disconnected from the room.');
+        leaveRoom();
+      });
+    }
+
+    function sendMessage(payload) {
+      if (conn && conn.open) {
+        conn.send(payload);
+      }
+    }
+
+    function handleIncomingMessage(msg) {
+      switch (msg.type) {
+        case 'HANDSHAKE_GUEST':
+          // Host receives Guest's name and sends back full match setup
+          state.names.p2 = msg.name || 'Player 2';
+          sendMessage({
+            type: 'HANDSHAKE_HOST',
+            mode: state.mode,
+            p1Name: state.names.p1,
+            p2Name: state.names.p2
+          });
+          startArena();
+          break;
+
+        case 'HANDSHAKE_HOST':
+          // Guest receives confirmed mode and player names
+          state.mode = msg.mode;
+          state.names.p1 = msg.p1Name || 'Player 1';
+          state.names.p2 = msg.p2Name || 'Player 2';
+          startArena();
+          break;
+
+        case 'PLAYER_ROLLED':
+          // Opponent rolled; store value silently until both have rolled
+          state.rolls[msg.player] = msg.value;
+          updateArenaUI();
+          checkRoundCompletion();
+          break;
+
+        case 'READY_NEXT_ROUND':
+          state.readyForNext[msg.player] = true;
+          updateArenaUI();
+          if (state.readyForNext.p1 && state.readyForNext.p2) {
+            advanceToNextRound();
+          }
+          break;
+
+        case 'RESET_MATCH':
+          resetMatchState();
+          updateArenaUI();
+          break;
+      }
+    }
+
+    // ==========================================
+    // 4. GAMEPLAY & BLIND-REVEAL LOGIC
+    // ==========================================
+    function startArena() {
+      document.getElementById('lobbyView').classList.add('hidden');
+      document.getElementById('waitingView').classList.add('hidden');
+      document.getElementById('gameView').classList.remove('hidden');
+
+      resetMatchState();
+      updateArenaUI();
+    }
+
+    function resetMatchState() {
+      state.round = 1;
+      state.rolls = { p1: null, p2: null };
+      state.streaks = { p1: 0, p2: 0 };
+      state.revealed = false;
+      state.matchOver = false;
+      state.readyForNext = { p1: false, p2: false };
+    }
+
+    function rollMyDie() {
+      const me = state.role;
+      if (state.rolls[me] !== null || state.matchOver) return;
+
+      // Cryptographically strong random roll 1..6 when available
+      let rolledValue;
+      if (window.crypto && window.crypto.getRandomValues) {
+        const arr = new Uint32Array(1);
+        window.crypto.getRandomValues(arr);
+        rolledValue = (arr[0] % 6) + 1;
+      } else {
+        rolledValue = Math.floor(Math.random() * 6) + 1;
+      }
+
+      // Brief shake animation on player's own die before locking
+      const myDieEl = document.getElementById(me + 'Die');
+      const rollBtn = document.getElementById('rollBtn');
+      rollBtn.disabled = true;
+      myDieEl.classList.add('animate-shake');
+
+      setTimeout(() => {
+        myDieEl.classList.remove('animate-shake');
+        state.rolls[me] = rolledValue;
+
+        sendMessage({
+          type: 'PLAYER_ROLLED',
+          player: me,
+          value: rolledValue
+        });
+
+        updateArenaUI();
+        checkRoundCompletion();
+      }, 450);
+    }
+
+    function checkRoundCompletion() {
+      if (state.rolls.p1 !== null && state.rolls.p2 !== null && !state.revealed) {
+        state.revealed = true;
+        evaluateRoundOutcome();
+        updateArenaUI();
+      }
+    }
+
+    function evaluateRoundOutcome() {
+      const r1 = state.rolls.p1;
+      const r2 = state.rolls.p2;
+
+      if (r1 > r2) {
+        // Player 1 wins round
+        if (state.mode === 'streak') {
+          state.streaks.p1 += 1;
+          state.streaks.p2 = 0;
+          if (state.streaks.p1 >= 3) {
+            state.matchOver = true;
+          }
+        } else {
+          state.matchOver = true;
+        }
+      } else if (r2 > r1) {
+        // Player 2 wins round
+        if (state.mode === 'streak') {
+          state.streaks.p2 += 1;
+          state.streaks.p1 = 0;
+          if (state.streaks.p2 >= 3) {
+            state.matchOver = true;
+          }
+        } else {
+          state.matchOver = true;
+        }
+      } else {
+        // Draw: in 3-in-a-row mode, a draw breaks any active winning streak
+        if (state.mode === 'streak') {
+          state.streaks.p1 = 0;
+          state.streaks.p2 = 0;
+        } else {
+          // Single game draw ends the single match
+          state.matchOver = true;
+        }
+      }
+    }
+
+    function requestNextRound() {
+      const me = state.role;
+      if (state.readyForNext[me]) return;
+
+      state.readyForNext[me] = true;
+      sendMessage({
+        type: 'READY_NEXT_ROUND',
+        player: me
+      });
+
+      updateArenaUI();
+
+      if (state.readyForNext.p1 && state.readyForNext.p2) {
+        advanceToNextRound();
+      }
+    }
+
+    function advanceToNextRound() {
+      state.round += 1;
+      state.rolls = { p1: null, p2: null };
+      state.revealed = false;
+      state.readyForNext = { p1: false, p2: false };
+      updateArenaUI();
+    }
+
+    function requestMatchReset() {
+      resetMatchState();
+      sendMessage({ type: 'RESET_MATCH' });
+      updateArenaUI();
+    }
+
+    // ==========================================
+    // 5. VISUAL DIE & ARENA RENDERING
+    // ==========================================
+    function renderDieVisual(playerKey, value, isRevealed, isMyOwnRoll) {
+      const dieBox = document.getElementById(playerKey + 'Die');
+      const mysteryEl = document.getElementById(playerKey + 'DieMystery');
+      const pipsContainer = document.getElementById(playerKey + 'DiePips');
+      const resultText = document.getElementById(playerKey + 'ResultText');
+
+      // Show pips if round is revealed OR if it's the local player's own locked roll
+      const showFace = value !== null && (isRevealed || isMyOwnRoll);
+
+      if (!showFace) {
+        dieBox.className = 'w-28 h-28 rounded-2xl bg-slate-800 border-2 border-slate-700 shadow-inner flex items-center justify-center relative transition-all';
+        mysteryEl.classList.remove('hidden');
+        pipsContainer.classList.add('hidden');
+
+        if (value !== null) {
+          // Opponent has rolled, still hidden
+          mysteryEl.textContent = '✓';
+          mysteryEl.className = 'text-4xl font-extrabold text-emerald-400 select-none animate-pop';
+          resultText.textContent = 'Locked (Hidden)';
+          resultText.className = 'font-semibold text-emerald-400';
+        } else {
+          mysteryEl.textContent = '?';
+          mysteryEl.className = 'text-4xl font-extrabold text-slate-600 select-none';
+          resultText.textContent = '—';
+          resultText.className = 'font-bold text-white';
+        }
+        return;
+      }
+
+      // Render crisp white die with black pips
+      dieBox.className = 'w-28 h-28 rounded-2xl bg-white border-2 border-slate-200 shadow-xl flex items-center justify-center relative transition-all animate-pop';
+      mysteryEl.classList.add('hidden');
+      pipsContainer.classList.remove('hidden');
+
+      const activePips = DIE_PIPS[value] || [];
+      pipsContainer.querySelectorAll('.pip').forEach((pipEl) => {
+        const idx = Number(pipEl.getAttribute('data-pip'));
+        if (activePips.includes(idx)) {
+          pipEl.classList.remove('opacity-0');
+          pipEl.classList.add('opacity-100');
+        } else {
+          pipEl.classList.remove('opacity-100');
+          pipEl.classList.add('opacity-0');
+        }
+      });
+
+      resultText.textContent = value;
+      resultText.className = 'font-extrabold text-white text-base';
+    }
+
+    function updateStreakDots(playerKey, count) {
+      for (let i = 1; i <= 3; i++) {
+        const dot = document.getElementById(`${playerKey}Streak${i}`);
+        if (i <= count) {
+          dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-400 border border-amber-300 shadow-[0_0_8px_#fbbf24] transition-colors';
+        } else {
+          dot.className = 'w-3.5 h-3.5 rounded-full bg-slate-800 border border-slate-700 transition-colors';
+        }
+      }
+    }
+
+    function updateArenaUI() {
+      const me = state.role;
+      const opp = me === 'p1' ? 'p2' : 'p1';
+
+      // Header metadata
+      document.getElementById('arenaRoomCode').textContent = state.roomCode;
+      document.getElementById('arenaModeBadge').textContent =
+        state.mode === 'single' ? 'Single Roll' : 'First to 3 Wins in a Row';
+      document.getElementById('roundNumberDisplay').textContent = state.round;
+      document.getElementById('roleFooterLabel').textContent =
+        `Connected as ${me === 'p1' ? 'Player 1 (Host)' : 'Player 2 (Guest)'}`;
+
+      // Names & "YOU" badges
+      document.getElementById('p1NameDisplay').textContent = state.names.p1;
+      document.getElementById('p2NameDisplay').textContent = state.names.p2;
+      document.getElementById('p1YouTag').classList.toggle('hidden', me !== 'p1');
+      document.getElementById('p2YouTag').classList.toggle('hidden', me !== 'p2');
+
+      // Streak UI visibility
+      const isStreakMode = state.mode === 'streak';
+      document.getElementById('p1StreakBox').classList.toggle('hidden', !isStreakMode);
+      document.getElementById('p2StreakBox').classList.toggle('hidden', !isStreakMode);
+      if (isStreakMode) {
+        updateStreakDots('p1', state.streaks.p1);
+        updateStreakDots('p2', state.streaks.p2);
+      }
+
+      // Status Pills
+      ['p1', 'p2'].forEach((pk) => {
+        const pill = document.getElementById(pk + 'StatusPill');
+        if (state.revealed) {
+          pill.textContent = 'Revealed';
+          pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300';
+        } else if (state.rolls[pk] !== null) {
+          pill.textContent = 'Rolled ✓';
+          pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
+        } else {
+          pill.textContent = 'Rolling...';
+          pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300';
+        }
+      });
+
+      // Render Dice
+      renderDieVisual('p1', state.rolls.p1, state.revealed, me === 'p1');
+      renderDieVisual('p2', state.rolls.p2, state.revealed, me === 'p2');
+
+      // Card Winner Highlighting
+      const p1Card = document.getElementById('p1Card');
+      const p2Card = document.getElementById('p2Card');
+      p1Card.className = 'p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all';
+      p2Card.className = 'p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all';
+
+      if (state.revealed) {
+        if (state.rolls.p1 > state.rolls.p2) {
+          p1Card.classList.add('border-emerald-500/70', 'bg-emerald-950/20');
+        } else if (state.rolls.p2 > state.rolls.p1) {
+          p2Card.classList.add('border-emerald-500/70', 'bg-emerald-950/20');
+        } else {
+          p1Card.classList.add('border-amber-500/50');
+          p2Card.classList.add('border-amber-500/50');
+        }
+      }
+
+      // Outcome Banner & Buttons
+      const banner = document.getElementById('outcomeBanner');
+      const title = document.getElementById('outcomeTitle');
+      const subtitle = document.getElementById('outcomeSubtitle');
+      const rollBtn = document.getElementById('rollBtn');
+      const nextRoundBtn = document.getElementById('nextRoundBtn');
+      const playAgainBtn = document.getElementById('playAgainBtn');
+
+      banner.className = 'p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-1 transition-all';
+
+      if (!state.revealed) {
+        nextRoundBtn.classList.add('hidden');
+        playAgainBtn.classList.add('hidden');
+        rollBtn.classList.remove('hidden');
+
+        if (state.rolls[me] === null) {
+          rollBtn.disabled = false;
+          rollBtn.textContent = 'Roll My Die';
+          title.textContent = 'Your Turn to Roll';
+          subtitle.textContent = state.rolls[opp] !== null
+            ? `${state.names[opp]} has already rolled! Click below to reveal both dice.`
+            : "Your opponent's number stays hidden until both players have rolled.";
+        } else {
+          rollBtn.disabled = true;
+          rollBtn.textContent = `You Rolled ${state.rolls[me]} — Waiting...`;
+          title.textContent = `Waiting for ${state.names[opp]}...`;
+          subtitle.textContent = 'Both dice will be revealed as soon as your opponent rolls.';
+        }
+        return;
+      }
+
+      // Both rolls are revealed!
+      rollBtn.classList.add('hidden');
+      const r1 = state.rolls.p1;
+      const r2 = state.rolls.p2;
+
+      if (state.matchOver) {
+        nextRoundBtn.classList.add('hidden');
+        playAgainBtn.classList.remove('hidden');
+        playAgainBtn.disabled = false;
+
+        if (r1 > r2) {
+          const iWon = me === 'p1';
+          banner.classList.add(iWon ? 'border-emerald-500/50' : 'border-rose-500/50');
+          title.textContent = iWon
+            ? `🏆 Victory! ${state.names.p1} Wins the Match!`
+            : `${state.names.p1} Wins the Match!`;
+          subtitle.textContent = state.mode === 'streak'
+            ? `${state.names.p1} hit 3 wins in a row (${r1} vs ${r2}).`
+            : `${state.names.p1} rolled ${r1} against ${state.names.p2}'s ${r2}.`;
+        } else if (r2 > r1) {
+          const iWon = me === 'p2';
+          banner.classList.add(iWon ? 'border-emerald-500/50' : 'border-rose-500/50');
+          title.textContent = iWon
+            ? `🏆 Victory! ${state.names.p2} Wins the Match!`
+            : `${state.names.p2} Wins the Match!`;
+          subtitle.textContent = state.mode === 'streak'
+            ? `${state.names.p2} hit 3 wins in a row (${r2} vs ${r1}).`
+            : `${state.names.p2} rolled ${r2} against ${state.names.p1}'s ${r1}.`;
+        } else {
+          // Single-round tie
+          banner.classList.add('border-amber-500/50');
+          title.textContent = `🤝 Match Draw! Both Rolled ${r1}`;
+          subtitle.textContent = 'Equal rolls! Hit Play New Match for a tie-breaker.';
+        }
+      } else {
+        // Streak mode continues to next round
+        playAgainBtn.classList.add('hidden');
+        nextRoundBtn.classList.remove('hidden');
+
+        if (r1 > r2) {
+          banner.classList.add('border-indigo-500/40');
+          title.textContent = `${state.names.p1} Wins Round ${state.round}! (${r1} vs ${r2})`;
+          subtitle.textContent = `${state.names.p1} streak: ${state.streaks.p1}/3 — ${state.names.p2} streak reset to 0.`;
+        } else if (r2 > r1) {
+          banner.classList.add('border-emerald-500/40');
+          title.textContent = `${state.names.p2} Wins Round ${state.round}! (${r2} vs ${r1})`;
+          subtitle.textContent = `${state.names.p2} streak: ${state.streaks.p2}/3 — ${state.names.p1} streak reset to 0.`;
+        } else {
+          banner.classList.add('border-amber-500/40');
+          title.textContent = `🤝 Round ${state.round} is a Draw! (Both Rolled ${r1})`;
+          subtitle.textContent = 'A tie breaks active streaks — both players are back to 0/3.';
+        }
+
+        if (state.readyForNext[me]) {
+          nextRoundBtn.disabled = true;
+          nextRoundBtn.textContent = `Waiting for ${state.names[opp]}...`;
+        } else {
+          nextRoundBtn.disabled = false;
+          nextRoundBtn.textContent = state.readyForNext[opp]
+            ? `Start Round ${state.round + 1} (${state.names[opp]} Ready!)`
+            : `Next Round`;
+        }
+      }
+    }
+
+    // ==========================================
+    // 6. UTILITIES & CLEANUP
+    // ==========================================
+    function copyRoomCode() {
+      navigator.clipboard.writeText(state.roomCode).then(() => {
+        const label = document.getElementById('copyBtnText');
+        label.textContent = 'Copied!';
+        setTimeout(() => {
+          label.textContent = 'Copy Code';
+        }, 2000);
+      });
+    }
+
+    function cleanupPeer() {
+      if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+      }
+      if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+      }
+    }
+
+    function leaveRoom() {
+      cleanupPeer();
+      setConnectionStatus('offline', 'Not Connected');
+      document.getElementById('waitingView').classList.add('hidden');
+      document.getElementById('gameView').classList.add('hidden');
+      document.getElementById('lobbyView').classList.remove('hidden');
+      hideLobbyAlert();
+    }
+
+    // Allow pressing Enter in the room code box to join
+    document.getElementById('roomCodeInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') joinGame();
+    });
+  </script>
+</body>
+</html>

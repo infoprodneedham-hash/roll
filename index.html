@@ -53,13 +53,18 @@
         </div>
         <div>
           <h1 class="text-lg font-bold tracking-tight text-white">Blind Duel Dice</h1>
-          <p class="text-xs text-slate-400">Cross-Network 2-Player Single-Die Showdown</p>
+          <p class="text-xs text-slate-400">Serverless WSS Relay — Phone-to-Phone</p>
         </div>
       </div>
 
-      <div id="connectionBadge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
-        <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-        <span id="statusText">Not Connected</span>
+      <div class="flex items-center gap-2">
+        <span id="pingBadge" class="hidden px-2.5 py-1 rounded-full text-[11px] font-mono bg-slate-800 text-emerald-400 border border-slate-700">
+          Ping: -- ms
+        </span>
+        <div id="connectionBadge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+          <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="statusText">Not Connected</span>
+        </div>
       </div>
     </header>
 
@@ -111,7 +116,7 @@
               <span class="text-xs text-slate-500">Player 2</span>
             </div>
             <h2 class="text-lg font-semibold text-white">Enter Room Code</h2>
-            <p class="text-sm text-slate-400">Got a 5-character code from the host? Enter it below to join from anywhere.</p>
+            <p class="text-sm text-slate-400">Got a 5-character code from the host? Enter it below to join from any location.</p>
 
             <div class="pt-1">
               <label for="roomCodeInput" class="block text-xs font-medium text-slate-400 mb-2">Room Code</label>
@@ -127,7 +132,7 @@
         </div>
       </div>
 
-      <!-- Lobby Alert -->
+      <!-- Lobby Status Alert -->
       <div id="lobbyAlert" class="hidden p-3.5 rounded-xl text-sm text-center border"></div>
     </main>
 
@@ -158,7 +163,7 @@
 
       <div class="flex items-center justify-center gap-2 text-xs text-slate-400">
         <span class="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-        <span>Room live on cloud — waiting for Player 2 to join...</span>
+        <span>Broadcasting room ping over WSS — waiting for Player 2...</span>
       </div>
 
       <div>
@@ -293,10 +298,16 @@
 
   </div>
 
-  <script>
-    // Firebase Realtime Database endpoint (works over standard HTTPS across all cellular/Wi-Fi networks)
-    const FIREBASE_DB_URL = 'https://checkers-99-default-rtdb.asia-southeast1.firebasedatabase.app';
-    const DB_ROOT = 'blind-duel-dice';
+  <!-- Trystero MQTT WebSocket Pub/Sub (Zero Database, Works Over Port 443 WSS Across Cellular Networks) -->
+  <script type="module">
+    import { joinRoom } from 'https://esm.sh/trystero@0.20.1/mqtt';
+
+    const APP_ID = 'blind-duel-dice-wss-v1';
+    const MQTT_BROKERS = [
+      'wss://broker.emqx.io:8084/mqtt',
+      'wss://broker.hivemq.com:8884/mqtt',
+      'wss://test.mosquitto.org:8081/mqtt'
+    ];
 
     const DIE_PIPS = {
       1: [5],
@@ -307,55 +318,28 @@
       6: [1, 3, 4, 6, 7, 9]
     };
 
-    let pollInterval = null;
+    let room = null;
+    let sendMsg = null;
+    let pingTimer = null;
+    let joinTimeout = null;
     let isRollingAnim = false;
-    let isAdvancingRound = false;
-    let lastSnapshotHash = '';
 
     const state = {
-      role: null, // 'p1' or 'p2'
+      role: null, // 'p1' (Host) or 'p2' (Guest)
       roomCode: '',
       mode: 'single',
       round: 1,
-      joined: false,
+      connected: false,
       names: { p1: 'Player 1', p2: 'Player 2' },
-      rolls: { p1: 0, p2: 0 }, // 0 = not rolled yet, 1..6 = rolled value
+      rolls: { p1: 0, p2: 0 },
       streaks: { p1: 0, p2: 0 },
+      revealed: false,
+      matchOver: false,
       readyForNext: { p1: false, p2: false }
     };
 
-    function roomEndpoint(subpath = '') {
-      const cleanSub = subpath ? `/${subpath}` : '';
-      return `${FIREBASE_DB_URL}/${DB_ROOT}/${state.roomCode}${cleanSub}.json`;
-    }
-
-    async function dbPut(subpath, data) {
-      const res = await fetch(roomEndpoint(subpath), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!res.ok) throw new Error('Database write failed (' + res.status + ')');
-      return res.json();
-    }
-
-    async function dbPatch(subpath, data) {
-      const res = await fetch(roomEndpoint(subpath), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!res.ok) throw new Error('Database update failed (' + res.status + ')');
-      return res.json();
-    }
-
-    async function dbGet(subpath = '') {
-      const res = await fetch(roomEndpoint(subpath), { cache: 'no-store' });
-      if (!res.ok) throw new Error('Database read failed (' + res.status + ')');
-      return res.json();
-    }
-
-    function selectMode(mode) {
+    // Expose UI handlers globally for inline onclick attributes
+    window.selectMode = function(mode) {
       state.mode = mode;
       const singleBtn = document.getElementById('modeSingleBtn');
       const streakBtn = document.getElementById('modeStreakBtn');
@@ -366,7 +350,7 @@
         streakBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-indigo-600/20 border-indigo-500 text-indigo-300';
         singleBtn.className = 'px-3 py-2.5 rounded-lg border text-xs font-semibold transition text-center bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700';
       }
-    }
+    };
 
     function showLobbyAlert(message, isError = true) {
       const el = document.getElementById('lobbyAlert');
@@ -406,56 +390,89 @@
     }
 
     // ==========================================
-    // HOST & JOIN VIA HTTPS REALTIME SYNC
+    // CONNECT TO SERVERLESS WSS RELAY + PING LOOP
     // ==========================================
-    async function hostGame() {
-      hideLobbyAlert();
-      const createBtn = document.getElementById('createRoomBtn');
-      createBtn.disabled = true;
-      createBtn.textContent = 'Creating Room...';
+    function connectRelayRoom(roomCode) {
+      cleanupRelay();
 
+      room = joinRoom(
+        {
+          appId: APP_ID,
+          relayUrls: MQTT_BROKERS,
+          relayRedundancy: 2
+        },
+        'room-' + roomCode
+      );
+
+      const [sendGameAction, getGameAction] = room.makeAction('game');
+      sendMsg = sendGameAction;
+
+      getGameAction((data, peerId) => {
+        handleIncomingPacket(data, peerId);
+      });
+
+      room.onPeerJoin((peerId) => {
+        if (state.role === 'p1') {
+          // Host sends full room state immediately on peer discovery
+          sendMsg({
+            type: 'HOST_WELCOME',
+            mode: state.mode,
+            p1Name: state.names.p1,
+            round: state.round,
+            p1Roll: state.rolls.p1,
+            p1Streak: state.streaks.p1,
+            p2Streak: state.streaks.p2
+          }, peerId);
+        } else if (state.role === 'p2') {
+          // Guest announces arrival & name
+          sendMsg({
+            type: 'GUEST_HELLO',
+            p2Name: state.names.p2
+          }, peerId);
+        }
+      });
+
+      room.onPeerLeave(() => {
+        if (state.connected) {
+          setConnectionStatus('waiting', 'Opponent Left');
+        }
+      });
+
+      // Continuous Ping / Heartbeat Loop (every 1.5s)
+      // Keeps mobile WebSockets awake AND auto-recovers missed packets
+      pingTimer = setInterval(() => {
+        if (!sendMsg) return;
+        sendMsg({
+          type: 'PING',
+          ts: Date.now(),
+          from: state.role,
+          name: state.names[state.role],
+          mode: state.mode,
+          round: state.round,
+          roll: state.rolls[state.role],
+          readyNext: state.readyForNext[state.role]
+        });
+      }, 1500);
+    }
+
+    window.hostGame = function() {
+      hideLobbyAlert();
       state.role = 'p1';
       state.names.p1 = getSanitizedName('Player 1');
       state.roomCode = generateRoomCode();
-      lastSnapshotHash = '';
+      state.connected = false;
 
-      const initialRoom = {
-        createdAt: Date.now(),
-        mode: state.mode,
-        round: 1,
-        joined: false,
-        p1Name: state.names.p1,
-        p2Name: 'Player 2',
-        p1Roll: 0,
-        p2Roll: 0,
-        p1Streak: 0,
-        p2Streak: 0,
-        p1ReadyNext: false,
-        p2ReadyNext: false
-      };
+      connectRelayRoom(state.roomCode);
 
-      try {
-        await dbPut('', initialRoom);
-        createBtn.disabled = false;
-        createBtn.textContent = 'Create Room & Get Code';
-        setConnectionStatus('waiting', 'Waiting for Player 2');
+      setConnectionStatus('waiting', 'Waiting for Player 2');
+      document.getElementById('lobbyView').classList.add('hidden');
+      document.getElementById('waitingView').classList.remove('hidden');
+      document.getElementById('generatedCodeDisplay').textContent = state.roomCode;
+      document.getElementById('waitingModeLabel').textContent =
+        state.mode === 'single' ? 'Mode: Single Roll' : 'Mode: First to 3 Wins in a Row';
+    };
 
-        document.getElementById('lobbyView').classList.add('hidden');
-        document.getElementById('waitingView').classList.remove('hidden');
-        document.getElementById('generatedCodeDisplay').textContent = state.roomCode;
-        document.getElementById('waitingModeLabel').textContent =
-          state.mode === 'single' ? 'Mode: Single Roll' : 'Mode: First to 3 Wins in a Row';
-
-        startPolling();
-      } catch (err) {
-        createBtn.disabled = false;
-        createBtn.textContent = 'Create Room & Get Code';
-        setConnectionStatus('offline', 'Connection Error');
-        showLobbyAlert('Could not create room: ' + err.message);
-      }
-    }
-
-    async function joinGame() {
+    window.joinGame = function() {
       hideLobbyAlert();
       const codeInput = document.getElementById('roomCodeInput').value.trim().toUpperCase();
       if (codeInput.length !== 5) {
@@ -465,126 +482,182 @@
 
       const joinBtn = document.getElementById('joinRoomBtn');
       joinBtn.disabled = true;
-      joinBtn.textContent = 'Joining...';
+      joinBtn.textContent = 'Pinging Room...';
 
       state.role = 'p2';
       state.names.p2 = getSanitizedName('Player 2');
       state.roomCode = codeInput;
-      lastSnapshotHash = '';
+      state.connected = false;
 
-      try {
-        const roomData = await dbGet('');
-        if (!roomData || !roomData.p1Name) {
+      setConnectionStatus('waiting', 'Pinging Room ' + state.roomCode + '...');
+      connectRelayRoom(state.roomCode);
+
+      // Broadcast immediate guest hello
+      setTimeout(() => {
+        if (sendMsg) sendMsg({ type: 'GUEST_HELLO', p2Name: state.names.p2 });
+      }, 400);
+
+      joinTimeout = setTimeout(() => {
+        if (!state.connected) {
           joinBtn.disabled = false;
           joinBtn.textContent = 'Join Room';
-          showLobbyAlert('Room "' + state.roomCode + '" was not found. Check the 5-character code.');
-          return;
+          setConnectionStatus('offline', 'Not Connected');
+          cleanupRelay();
+          showLobbyAlert('No response from room "' + state.roomCode + '". Make sure the host has the room open and check the 5-letter code.');
         }
+      }, 12000);
+    };
 
-        await dbPatch('', {
-          joined: true,
-          p2Name: state.names.p2
-        });
+    function handleIncomingPacket(msg, peerId) {
+      if (!msg || !msg.type) return;
 
-        joinBtn.disabled = false;
-        joinBtn.textContent = 'Join Room';
-        setConnectionStatus('connected', 'Connected');
+      switch (msg.type) {
+        case 'PING':
+          // Reply with PONG so opponent can measure round-trip latency
+          if (sendMsg && msg.ts) {
+            sendMsg({ type: 'PONG', ts: msg.ts }, peerId);
+          }
 
-        document.getElementById('lobbyView').classList.add('hidden');
-        document.getElementById('gameView').classList.remove('hidden');
+          // Reconcile state from heartbeat ping in case a single packet was dropped
+          if (state.role === 'p1' && msg.from === 'p2') {
+            if (msg.name) state.names.p2 = msg.name;
+            if (!state.connected) {
+              state.connected = true;
+              enterArena();
+            }
+            if (msg.round === state.round && msg.roll > 0 && state.rolls.p2 === 0) {
+              state.rolls.p2 = msg.roll;
+              checkRoundCompletion();
+            }
+            if (msg.round === state.round && msg.readyNext && !state.readyForNext.p2) {
+              state.readyForNext.p2 = true;
+              if (state.readyForNext.p1 && state.readyForNext.p2) advanceToNextRound();
+            }
+            updateArenaUI();
+          } else if (state.role === 'p2' && msg.from === 'p1') {
+            if (msg.name) state.names.p1 = msg.name;
+            if (msg.mode) state.mode = msg.mode;
+            if (!state.connected) {
+              if (joinTimeout) clearTimeout(joinTimeout);
+              const joinBtn = document.getElementById('joinRoomBtn');
+              joinBtn.disabled = false;
+              joinBtn.textContent = 'Join Room';
+              state.connected = true;
+              enterArena();
+            }
+            if (msg.round === state.round && msg.roll > 0 && state.rolls.p1 === 0) {
+              state.rolls.p1 = msg.roll;
+              checkRoundCompletion();
+            }
+            if (msg.round === state.round && msg.readyNext && !state.readyForNext.p1) {
+              state.readyForNext.p1 = true;
+              if (state.readyForNext.p1 && state.readyForNext.p2) advanceToNextRound();
+            }
+            updateArenaUI();
+          }
+          break;
 
-        applyRemoteRoomState({
-          ...roomData,
-          joined: true,
-          p2Name: state.names.p2
-        });
+        case 'PONG':
+          if (msg.ts) {
+            const rtt = Math.max(1, Date.now() - msg.ts);
+            const badge = document.getElementById('pingBadge');
+            badge.classList.remove('hidden');
+            badge.textContent = `Ping: ${rtt} ms`;
+          }
+          break;
 
-        startPolling();
-      } catch (err) {
-        joinBtn.disabled = false;
-        joinBtn.textContent = 'Join Room';
-        setConnectionStatus('offline', 'Not Connected');
-        showLobbyAlert('Error joining room: ' + err.message);
+        case 'GUEST_HELLO':
+          if (state.role === 'p1') {
+            state.names.p2 = msg.p2Name || 'Player 2';
+            sendMsg({
+              type: 'HOST_WELCOME',
+              mode: state.mode,
+              p1Name: state.names.p1,
+              round: state.round,
+              p1Roll: state.rolls.p1,
+              p1Streak: state.streaks.p1,
+              p2Streak: state.streaks.p2
+            }, peerId);
+
+            if (!state.connected) {
+              state.connected = true;
+              enterArena();
+            }
+            updateArenaUI();
+          }
+          break;
+
+        case 'HOST_WELCOME':
+          if (state.role === 'p2') {
+            if (joinTimeout) clearTimeout(joinTimeout);
+            const joinBtn = document.getElementById('joinRoomBtn');
+            joinBtn.disabled = false;
+            joinBtn.textContent = 'Join Room';
+
+            state.mode = msg.mode || 'single';
+            state.names.p1 = msg.p1Name || 'Player 1';
+            state.round = msg.round || 1;
+            if (msg.p1Roll > 0) state.rolls.p1 = msg.p1Roll;
+            state.streaks.p1 = msg.p1Streak || 0;
+            state.streaks.p2 = msg.p2Streak || 0;
+
+            if (!state.connected) {
+              state.connected = true;
+              enterArena();
+            }
+            checkRoundCompletion();
+            updateArenaUI();
+          }
+          break;
+
+        case 'PLAYER_ROLLED':
+          if (msg.round === state.round) {
+            state.rolls[msg.player] = msg.value;
+            checkRoundCompletion();
+            updateArenaUI();
+          }
+          break;
+
+        case 'READY_NEXT_ROUND':
+          if (msg.round === state.round) {
+            state.readyForNext[msg.player] = true;
+            updateArenaUI();
+            if (state.readyForNext.p1 && state.readyForNext.p2) {
+              advanceToNextRound();
+            }
+          }
+          break;
+
+        case 'RESET_MATCH':
+          resetMatchState();
+          updateArenaUI();
+          break;
       }
     }
 
-    function startPolling() {
-      stopPolling();
-      pollInterval = setInterval(syncRoomState, 900);
-    }
-
-    function stopPolling() {
-      if (pollInterval) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-      }
-    }
-
-    async function syncRoomState() {
-      if (!state.roomCode) return;
-      try {
-        const data = await dbGet('');
-        if (!data) {
-          stopPolling();
-          setConnectionStatus('offline', 'Room Closed');
-          alert('The room was closed.');
-          leaveRoom();
-          return;
-        }
-
-        const snapshot = JSON.stringify(data);
-        if (snapshot !== lastSnapshotHash) {
-          lastSnapshotHash = snapshot;
-          applyRemoteRoomState(data);
-        }
-      } catch (e) {
-        // Silent retry on transient cellular drop
-      }
-    }
-
-    function applyRemoteRoomState(data) {
-      state.mode = data.mode || 'single';
-      state.round = Number(data.round) || 1;
-      state.joined = Boolean(data.joined);
-      state.names.p1 = data.p1Name || 'Player 1';
-      state.names.p2 = data.p2Name || 'Player 2';
-      state.rolls.p1 = Number(data.p1Roll) || 0;
-      state.rolls.p2 = Number(data.p2Roll) || 0;
-      state.streaks.p1 = Number(data.p1Streak) || 0;
-      state.streaks.p2 = Number(data.p2Streak) || 0;
-      state.readyForNext.p1 = Boolean(data.p1ReadyNext);
-      state.readyForNext.p2 = Boolean(data.p2ReadyNext);
-
-      // Host transitions automatically from Waiting screen once Guest joins
-      if (state.role === 'p1' && state.joined && !document.getElementById('waitingView').classList.contains('hidden')) {
-        document.getElementById('waitingView').classList.add('hidden');
-        document.getElementById('gameView').classList.remove('hidden');
-        setConnectionStatus('connected', 'Connected');
-      }
-
-      // If both players clicked Next Round, Host advances round cleanly
-      if (state.role === 'p1' && state.readyForNext.p1 && state.readyForNext.p2 && !isAdvancingRound) {
-        isAdvancingRound = true;
-        dbPatch('', {
-          round: state.round + 1,
-          p1Roll: 0,
-          p2Roll: 0,
-          p1ReadyNext: false,
-          p2ReadyNext: false
-        }).finally(() => {
-          isAdvancingRound = false;
-        });
-      }
-
+    function enterArena() {
+      setConnectionStatus('connected', 'Connected');
+      document.getElementById('lobbyView').classList.add('hidden');
+      document.getElementById('waitingView').classList.add('hidden');
+      document.getElementById('gameView').classList.remove('hidden');
       updateArenaUI();
+    }
+
+    function resetMatchState() {
+      state.round = 1;
+      state.rolls = { p1: 0, p2: 0 };
+      state.streaks = { p1: 0, p2: 0 };
+      state.revealed = false;
+      state.matchOver = false;
+      state.readyForNext = { p1: false, p2: false };
     }
 
     // ==========================================
     // GAMEPLAY & BLIND-REVEAL LOGIC
     // ==========================================
-    function rollMyDie() {
+    window.rollMyDie = function() {
       const me = state.role;
-      if (state.rolls[me] > 0 || isRollingAnim) return;
+      if (state.rolls[me] > 0 || state.matchOver || isRollingAnim) return;
 
       let rolledValue;
       if (window.crypto && window.crypto.getRandomValues) {
@@ -601,69 +674,95 @@
       rollBtn.disabled = true;
       myDieEl.classList.add('animate-shake');
 
-      setTimeout(async () => {
+      setTimeout(() => {
         myDieEl.classList.remove('animate-shake');
         isRollingAnim = false;
         state.rolls[me] = rolledValue;
 
-        const patchPayload = me === 'p1' ? { p1Roll: rolledValue } : { p2Roll: rolledValue };
-
-        // If opponent already rolled, compute updated streaks atomically as part of reveal
-        const opp = me === 'p1' ? 'p2' : 'p1';
-        if (state.rolls[opp] > 0 && state.mode === 'streak') {
-          const r1 = me === 'p1' ? rolledValue : state.rolls.p1;
-          const r2 = me === 'p2' ? rolledValue : state.rolls.p2;
-          if (r1 > r2) {
-            patchPayload.p1Streak = state.streaks.p1 + 1;
-            patchPayload.p2Streak = 0;
-          } else if (r2 > r1) {
-            patchPayload.p2Streak = state.streaks.p2 + 1;
-            patchPayload.p1Streak = 0;
-          } else {
-            patchPayload.p1Streak = 0;
-            patchPayload.p2Streak = 0;
-          }
-          if (patchPayload.p1Streak !== undefined) state.streaks.p1 = patchPayload.p1Streak;
-          if (patchPayload.p2Streak !== undefined) state.streaks.p2 = patchPayload.p2Streak;
+        if (sendMsg) {
+          sendMsg({
+            type: 'PLAYER_ROLLED',
+            round: state.round,
+            player: me,
+            value: rolledValue
+          });
         }
 
+        checkRoundCompletion();
         updateArenaUI();
-        try {
-          await dbPatch('', patchPayload);
-        } catch (err) {
-          showLobbyAlert('Network sync error: ' + err.message);
-        }
       }, 450);
+    };
+
+    function checkRoundCompletion() {
+      if (state.rolls.p1 > 0 && state.rolls.p2 > 0 && !state.revealed) {
+        state.revealed = true;
+        evaluateRoundOutcome();
+      }
     }
 
-    async function requestNextRound() {
+    function evaluateRoundOutcome() {
+      const r1 = state.rolls.p1;
+      const r2 = state.rolls.p2;
+
+      if (r1 > r2) {
+        if (state.mode === 'streak') {
+          state.streaks.p1 += 1;
+          state.streaks.p2 = 0;
+          if (state.streaks.p1 >= 3) state.matchOver = true;
+        } else {
+          state.matchOver = true;
+        }
+      } else if (r2 > r1) {
+        if (state.mode === 'streak') {
+          state.streaks.p2 += 1;
+          state.streaks.p1 = 0;
+          if (state.streaks.p2 >= 3) state.matchOver = true;
+        } else {
+          state.matchOver = true;
+        }
+      } else {
+        if (state.mode === 'streak') {
+          state.streaks.p1 = 0;
+          state.streaks.p2 = 0;
+        } else {
+          state.matchOver = true;
+        }
+      }
+    }
+
+    window.requestNextRound = function() {
       const me = state.role;
       if (state.readyForNext[me]) return;
 
       state.readyForNext[me] = true;
+      if (sendMsg) {
+        sendMsg({
+          type: 'READY_NEXT_ROUND',
+          round: state.round,
+          player: me
+        });
+      }
+
       updateArenaUI();
 
-      const patchPayload = me === 'p1' ? { p1ReadyNext: true } : { p2ReadyNext: true };
-      await dbPatch('', patchPayload);
-    }
+      if (state.readyForNext.p1 && state.readyForNext.p2) {
+        advanceToNextRound();
+      }
+    };
 
-    async function requestMatchReset() {
-      const resetPayload = {
-        round: 1,
-        p1Roll: 0,
-        p2Roll: 0,
-        p1Streak: 0,
-        p2Streak: 0,
-        p1ReadyNext: false,
-        p2ReadyNext: false
-      };
-      state.round = 1;
+    function advanceToNextRound() {
+      state.round += 1;
       state.rolls = { p1: 0, p2: 0 };
-      state.streaks = { p1: 0, p2: 0 };
+      state.revealed = false;
       state.readyForNext = { p1: false, p2: false };
       updateArenaUI();
-      await dbPatch('', resetPayload);
     }
+
+    window.requestMatchReset = function() {
+      resetMatchState();
+      if (sendMsg) sendMsg({ type: 'RESET_MATCH' });
+      updateArenaUI();
+    };
 
     // ==========================================
     // VISUAL DIE & ARENA RENDERING
@@ -729,17 +828,11 @@
 
     function updateArenaUI() {
       const me = state.role;
+      if (!me) return;
       const opp = me === 'p1' ? 'p2' : 'p1';
       const r1 = state.rolls.p1;
       const r2 = state.rolls.p2;
-      const isRevealed = r1 > 0 && r2 > 0;
-
       const isStreakMode = state.mode === 'streak';
-      const matchOver = isRevealed && (
-        !isStreakMode ||
-        state.streaks.p1 >= 3 ||
-        state.streaks.p2 >= 3
-      );
 
       document.getElementById('arenaRoomCode').textContent = state.roomCode;
       document.getElementById('arenaModeBadge').textContent =
@@ -762,7 +855,7 @@
 
       ['p1', 'p2'].forEach((pk) => {
         const pill = document.getElementById(pk + 'StatusPill');
-        if (isRevealed) {
+        if (state.revealed) {
           pill.textContent = 'Revealed';
           pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300';
         } else if (state.rolls[pk] > 0) {
@@ -774,15 +867,15 @@
         }
       });
 
-      renderDieVisual('p1', r1, isRevealed, me === 'p1');
-      renderDieVisual('p2', r2, isRevealed, me === 'p2');
+      renderDieVisual('p1', r1, state.revealed, me === 'p1');
+      renderDieVisual('p2', r2, state.revealed, me === 'p2');
 
       const p1Card = document.getElementById('p1Card');
       const p2Card = document.getElementById('p2Card');
       p1Card.className = 'p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all';
       p2Card.className = 'p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center text-center space-y-4 transition-all';
 
-      if (isRevealed) {
+      if (state.revealed) {
         if (r1 > r2) {
           p1Card.classList.add('border-emerald-500/70', 'bg-emerald-950/20');
         } else if (r2 > r1) {
@@ -802,7 +895,7 @@
 
       banner.className = 'p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-1 transition-all';
 
-      if (!isRevealed) {
+      if (!state.revealed) {
         nextRoundBtn.classList.add('hidden');
         playAgainBtn.classList.add('hidden');
         rollBtn.classList.remove('hidden');
@@ -825,7 +918,7 @@
 
       rollBtn.classList.add('hidden');
 
-      if (matchOver) {
+      if (state.matchOver) {
         nextRoundBtn.classList.add('hidden');
         playAgainBtn.classList.remove('hidden');
         playAgainBtn.disabled = false;
@@ -883,27 +976,45 @@
       }
     }
 
-    function copyRoomCode() {
+    window.copyRoomCode = function() {
       navigator.clipboard.writeText(state.roomCode).then(() => {
         const label = document.getElementById('copyBtnText');
         label.textContent = 'Copied!';
         setTimeout(() => { label.textContent = 'Copy Code'; }, 2000);
       });
+    };
+
+    function cleanupRelay() {
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      if (joinTimeout) {
+        clearTimeout(joinTimeout);
+        joinTimeout = null;
+      }
+      if (room) {
+        try { room.leave(); } catch (e) {}
+        room = null;
+      }
+      sendMsg = null;
     }
 
-    function leaveRoom() {
-      stopPolling();
+    window.leaveRoom = function() {
+      cleanupRelay();
+      resetMatchState();
+      state.connected = false;
       state.roomCode = '';
-      lastSnapshotHash = '';
+      document.getElementById('pingBadge').classList.add('hidden');
       setConnectionStatus('offline', 'Not Connected');
       document.getElementById('waitingView').classList.add('hidden');
       document.getElementById('gameView').classList.add('hidden');
       document.getElementById('lobbyView').classList.remove('hidden');
       hideLobbyAlert();
-    }
+    };
 
     document.getElementById('roomCodeInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') joinGame();
+      if (e.key === 'Enter') window.joinGame();
     });
   </script>
 </body>
